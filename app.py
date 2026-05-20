@@ -4,7 +4,7 @@ import numpy as np
 import plotly.express as px
 import plotly.graph_objects as go
 
-st.set_page_config(page_title="Système d'Aide à la Décision", layout="wide", initial_sidebar_state="expanded")
+st.set_page_config(page_title="Decision Support System", layout="wide", initial_sidebar_state="expanded")
 
 st.markdown("""
     <style>
@@ -47,6 +47,7 @@ st.markdown("""
         margin-top: 1.2rem;
         margin-bottom: 1.8rem;
         box-shadow: 0 4px 20px 0 rgba(0, 0, 0, 0.3);
+        color: #0F172A !important;
     }
     .recommendation-title {
         color: #60A5FA !important;
@@ -64,10 +65,12 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 st.title("Project Scoring Simulator")
-st.markdown("Système d'aide à la décision basé sur la méthode d'analyse multicritère TOPSIS.")
+st.markdown("Système d'aide à la décision combinant la méthode géométrique TOPSIS et la méthode de prudence Min-Max.")
 st.markdown("---")
 
+# ============================
 # PANNEAU LATÉRAL
+# ============================
 st.sidebar.markdown("### Configuration des Dimensions")
 nb_criteres = st.sidebar.number_input("Nombre de critères", min_value=2, max_value=10, value=5, step=1)
 nb_alternatives = st.sidebar.number_input("Nombre d'alternatives", min_value=2, max_value=15, value=4, step=1)
@@ -94,8 +97,9 @@ for i in range(int(nb_criteres)):
 
 st.sidebar.markdown("---")
 
-
+# ============================
 # ZONE CENTRALE
+# ============================
 st.markdown("### Project Weight Configuration")
 poids_criteres = []
 cols_sliders = st.columns(2)
@@ -120,7 +124,9 @@ poids_normalises = [p / somme_poids for p in poids_criteres] if somme_poids > 0 
 
 st.markdown("---")
 
+# ============================
 # FORMULAIRE
+# ============================
 st.markdown("### Matrice de Saisie des Données")
 form_data = {}
 noms_alternatives = []
@@ -153,16 +159,39 @@ df_brut = pd.DataFrame(form_data, index=noms_alternatives)
 st.dataframe(df_brut, width='stretch')
 st.markdown("---")
 
-# CALCULS ET GRAPHIQUES
+# ==========================================
+# TRAITEMENT ALGORITHMIQUE
+# ==========================================
 if st.button("Calculer le score de performance", type="primary"):
     X = df_brut.to_numpy(dtype=float)
     
-    # Algorithme TOPSIS
     norm_denominator = np.sqrt((X**2).sum(axis=0))
     norm_denominator[norm_denominator == 0] = 1e-9 
     X_norm = X / norm_denominator
-    X_pond = X_norm * np.array(poids_normalises)
     
+    # CALCULS ANALYTIQUES MÉTHODE MIN-MAX
+    X_minmax_prep = np.zeros_like(X_norm)
+    for col in range(int(nb_criteres)):
+        if objectifs_criteres[col]:
+            X_minmax_prep[:, col] = X_norm[:, col]
+        else:
+            X_minmax_prep[:, col] = 1.0 - X_norm[:, col]
+            
+    # Identifier la pire performance (le minimum) pour chaque alternative
+    pires_scores_alternatives = np.min(X_minmax_prep, axis=1)
+    
+    df_minmax = pd.DataFrame({
+        "Alternative": noms_alternatives,
+        "Score Sécurité (Min-Max)": pires_scores_alternatives
+    }).sort_values(by="Score Sécurité (Min-Max)", ascending=True)
+    
+    meilleur_projet_mm = df_minmax.iloc[-1]['Alternative']
+    meilleur_score_mm = df_minmax.iloc[-1]["Score Sécurité (Min-Max)"]
+
+    # ================================================
+    # CALCULS ANALYTIQUES MÉTHODE TOPSIS
+    # ================================================
+    X_pond = X_norm * np.array(poids_normalises)
     v_ideal_positive, v_ideal_negative = [], []
     for col in range(int(nb_criteres)):
         if objectifs_criteres[col]:
@@ -180,46 +209,80 @@ if st.button("Calculer le score de performance", type="primary"):
     scores_denom[scores_denom == 0] = 1e-9
     scores_topsis = d_negative / scores_denom
     
-    df_final = pd.DataFrame({
+    df_topsis = pd.DataFrame({
         "Alternative": noms_alternatives,
-        "Score Pondéré": scores_topsis
-    }).sort_values(by="Score Pondéré", ascending=True)
+        "Score TOPSIS": scores_topsis
+    }).sort_values(by="Score TOPSIS", ascending=True)
     
-    meilleur_projet = df_final.iloc[-1]['Alternative']
-    meilleur_score = df_final.iloc[-1]["Score Pondéré"]
-    
+    meilleur_projet_top = df_topsis.iloc[-1]['Alternative']
+    meilleur_score_top = df_topsis.iloc[-1]["Score TOPSIS"]
+
+    # ========================================================
+    # RESTITUTION DES RÉSULTATS : MODULE MIN-MAX
+    # ========================================================
+    st.markdown("## 1. Résultats : Méthode de Prudence Min-Max")
     st.markdown(f"""
-        <div class="recommendation-box">
-            <div class="recommendation-title">Solution Recommandée</div>
+        <div class="recommendation-box" style="border-left-color: #10B981;">
+            <div class="recommendation-title" style="color: #34D399 !important;">Recommandation Min-Max (Profil Prudent)</div>
             <div class="recommendation-text">
-                L'alternative optimale identifiée par l'algorithme est <strong>{meilleur_projet}</strong> avec un score d'adéquation de <strong>{meilleur_score:.3f}</strong>.
+                En sécurisant au maximum vos points faibles, l'alternative optimale est <strong>{meilleur_projet_mm}</strong> avec un score de sécurité minimal de <strong>{meilleur_score_mm:.3f}</strong>.
             </div>
         </div>
     """, unsafe_allow_html=True)
     
-    # Disposition des tableaux et graphiques principaux
-    col_table, col_chart = st.columns([2, 3])
-    with col_table:
-        st.markdown("### Tableau de Classement")
-        df_affichage = df_final.iloc[::-1].copy().reset_index(drop=True)
-        df_affichage.index += 1
-        df_affichage.index.name = "Rang"
-        st.dataframe(df_affichage, width='stretch')
+    col_table_mm, col_chart_mm = st.columns([2, 3])
+    with col_table_mm:
+        st.markdown("##### Classement Min-Max")
+        df_aff_mm = df_minmax.iloc[::-1].copy().reset_index(drop=True)
+        df_aff_mm.index += 1
+        df_aff_mm.index.name = "Rang"
+        st.dataframe(df_aff_mm, width='stretch')
         
-    with col_chart:
-        st.markdown("### Classement des Performances Réduites")
-        couleurs_map = {alt: '#4ADE80' if alt != meilleur_projet else '#93C5FD' for alt in df_final['Alternative']}
-        fig_bar = px.bar(df_final, x="Score Pondéré", y="Alternative", orientation='h', text_auto='.3f', color="Alternative", color_discrete_map=couleurs_map)
-        fig_bar.update_layout(showlegend=False, xaxis_title="Score Performance", yaxis_title=None, height=280, paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)')
-        fig_bar.update_traces(textposition='outside', cliponaxis=False)
-        st.plotly_chart(fig_bar, width='stretch', config={'displayModeBar': False})
+    with col_chart_mm:
+        couleurs_mm = {alt: '#A7F3D0' if alt != meilleur_projet_mm else '#34D399' for alt in df_minmax['Alternative']}
+        fig_bar_mm = px.bar(df_minmax, x="Score Sécurité (Min-Max)", y="Alternative", orientation='h', text_auto='.3f', color="Alternative", color_discrete_map=couleurs_mm)
+        fig_bar_mm.update_layout(showlegend=False, xaxis_title="Indice de Sécurité Minimal", yaxis_title=None, height=240, paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)')
+        fig_bar_mm.update_traces(textposition='outside', cliponaxis=False)
+        st.plotly_chart(fig_bar_mm, width='stretch', config={'displayModeBar': False})
 
     st.markdown("---")
-    st.markdown("### Analyses Décisionnelles Approfondies")
+
+    # ========================================================
+    # RESTITUTION DES RÉSULTATS : MODULE TOPSIS
+    # ========================================================
+    st.markdown("## 2. Résultats : Méthode Compromis Global (TOPSIS)")
+    st.markdown(f"""
+        <div class="recommendation-box">
+            <div class="recommendation-title">Recommandation TOPSIS (Profil Équilibré)</div>
+            <div class="recommendation-text">
+                En mesurant le compromis global idéal, l'alternative optimale est <strong>{meilleur_projet_top}</strong> avec un score d'adéquation de <strong>{meilleur_score_top:.3f}</strong>.
+            </div>
+        </div>
+    """, unsafe_allow_html=True)
+    
+    col_table_top, col_chart_top = st.columns([2, 3])
+    with col_table_top:
+        st.markdown("##### Classement TOPSIS")
+        df_aff_top = df_topsis.iloc[::-1].copy().reset_index(drop=True)
+        df_aff_top.index += 1
+        df_aff_top.index.name = "Rang"
+        st.dataframe(df_aff_top, width='stretch')
+        
+    with col_chart_top:
+        couleurs_top = {alt: '#4ADE80' if alt != meilleur_projet_top else '#93C5FD' for alt in df_topsis['Alternative']}
+        fig_bar_top = px.bar(df_topsis, x="Score TOPSIS", y="Alternative", orientation='h', text_auto='.3f', color="Alternative", color_discrete_map=couleurs_top)
+        fig_bar_top.update_layout(showlegend=False, xaxis_title="Score de Proximité Idéale", yaxis_title=None, height=240, paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)')
+        fig_bar_top.update_traces(textposition='outside', cliponaxis=False)
+        st.plotly_chart(fig_bar_top, width='stretch', config={'displayModeBar': False})
+
+    # ==========================================
+    # ANALYSES FINALES ET AVANCÉES
+    # ==========================================
+    st.markdown("---")
+    st.markdown("### Analyses Décisionnelles Approfondies (Données Brutes Normalisées)")
     
     col_radar, col_stack = st.columns(2)
     
-    # Radar Chart
     with col_radar:
         st.markdown("#### Profil Comparatif des Alternatives (Radar)")
         fig_radar = go.Figure()
@@ -229,14 +292,13 @@ if st.button("Calculer le score de performance", type="primary"):
                 theta=noms_criteres + [noms_criteres[0]],
                 fill='toself',
                 name=name,
-                line=dict(width=2 if name != meilleur_projet else 3)
+                line=dict(width=2 if name != meilleur_projet_top else 3)
             ))
         fig_radar.update_layout(polar=dict(radialaxis=dict(visible=True, range=[0, 1])), showlegend=True, height=350, margin=dict(t=20, b=20, l=20, r=20))
         st.plotly_chart(fig_radar, width='stretch')
 
-    # Barres empilées
     with col_stack:
-        st.markdown("#### Contribution de chaque critère au profil")
+        st.markdown("#### Contribution de chaque critère au profil pondéré")
         df_stack = pd.DataFrame(X_pond, columns=noms_criteres, index=noms_alternatives).reset_index().rename(columns={'index': 'Alternative'})
         fig_stack = px.bar(df_stack, x="Alternative", y=noms_criteres, barmode="stack", color_discrete_sequence=px.colors.qualitative.Safe)
         fig_stack.update_layout(xaxis_title=None, yaxis_title="Valeur Pondérée Cumulée", height=350, margin=dict(t=20, b=20, l=20, r=20), legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1))

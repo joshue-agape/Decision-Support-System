@@ -64,14 +64,14 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-st.title("Project Scoring Simulator")
-st.markdown("Système d'aide à la décision combinant la méthode géométrique TOPSIS et la méthode de prudence Min-Max.")
+st.title("Outil de simulation pour la notation des projets")
+st.markdown("Outil décisionnel mêlant la méthode géométrique TOPSIS et la méthode prudente Min-Max.")
 st.markdown("---")
 
 # ============================
 # PANNEAU LATÉRAL
 # ============================
-st.sidebar.markdown("### Configuration des Dimensions")
+st.sidebar.markdown("### Ajustement des Dimensions")
 nb_criteres = st.sidebar.number_input("Nombre de critères", min_value=2, max_value=10, value=5, step=1)
 nb_alternatives = st.sidebar.number_input("Nombre d'alternatives", min_value=2, max_value=15, value=4, step=1)
 
@@ -127,7 +127,7 @@ st.markdown("---")
 # ============================
 # FORMULAIRE
 # ============================
-st.markdown("### Matrice de Saisie des Données")
+st.markdown("### Support de collecte des données")
 form_data = {}
 noms_alternatives = []
 col_alt, *cols_crit = st.columns([2] + [1] * int(nb_criteres))
@@ -142,7 +142,7 @@ valeurs_defaut = [
 with col_alt:
     st.markdown("**Alternative**")
     for j in range(int(nb_alternatives)):
-        nom_alt = st.text_input(f"Ligne {j+1}", value=f"Projet A{j+1}", key=f"alt_name_{j}")
+        nom_alt = st.text_input(f"Variante de projet {j+1}", value=f"Projet A{j+1}", key=f"alt_name_{j}")
         noms_alternatives.append(nom_alt)
 
 for c_idx, c_nom in enumerate(noms_criteres):
@@ -162,7 +162,7 @@ st.markdown("---")
 # ==========================================
 # TRAITEMENT ALGORITHMIQUE
 # ==========================================
-if st.button("Calculer le score de performance", type="primary"):
+if st.button("Évaluer le score de performance", type="primary"):
     X = df_brut.to_numpy(dtype=float)
     
     norm_denominator = np.sqrt((X**2).sum(axis=0))
@@ -220,12 +220,12 @@ if st.button("Calculer le score de performance", type="primary"):
     # ========================================================
     # RESTITUTION DES RÉSULTATS : MODULE MIN-MAX
     # ========================================================
-    st.markdown("## 1. Résultats : Méthode de Prudence Min-Max")
+    st.markdown("## 1. Résultats obtenus par la méthode prudente Min-Max")
     st.markdown(f"""
         <div class="recommendation-box" style="border-left-color: #10B981;">
-            <div class="recommendation-title" style="color: #34D399 !important;">Recommandation Min-Max (Profil Prudent)</div>
+            <div class="recommendation-title" style="color: #34D399 !important;">Recommandation Min-Max (Profil prudent)</div>
             <div class="recommendation-text">
-                En sécurisant au maximum vos points faibles, l'alternative optimale est <strong>{meilleur_projet_mm}</strong> avec un score de sécurité minimal de <strong>{meilleur_score_mm:.3f}</strong>.
+                En renforçant au maximum les points faibles, l’alternative la plus adaptée est <strong>{meilleur_projet_mm}</strong> avec un score de sécurité minimal de <strong>{meilleur_score_mm:.3f}</strong>.
             </div>
         </div>
     """, unsafe_allow_html=True)
@@ -250,7 +250,7 @@ if st.button("Calculer le score de performance", type="primary"):
     # ========================================================
     # RESTITUTION DES RÉSULTATS : MODULE TOPSIS
     # ========================================================
-    st.markdown("## 2. Résultats : Méthode Compromis Global (TOPSIS)")
+    st.markdown("## 2. Résultats obtenus par la méthode de compromis TOPSIS")
     st.markdown(f"""
         <div class="recommendation-box">
             <div class="recommendation-title">Recommandation TOPSIS (Profil Équilibré)</div>
@@ -279,12 +279,12 @@ if st.button("Calculer le score de performance", type="primary"):
     # ANALYSES FINALES ET AVANCÉES
     # ==========================================
     st.markdown("---")
-    st.markdown("### Analyses Décisionnelles Approfondies (Données Brutes Normalisées)")
+    st.markdown("### Analyse approfondie de décision basée sur des données brutes normalisées")
     
     col_radar, col_stack = st.columns(2)
     
     with col_radar:
-        st.markdown("#### Profil Comparatif des Alternatives (Radar)")
+        st.markdown("#### Représentation comparative des alternatives en radar")
         fig_radar = go.Figure()
         for idx, name in enumerate(noms_alternatives):
             fig_radar.add_trace(go.Scatterpolar(
@@ -298,7 +298,7 @@ if st.button("Calculer le score de performance", type="primary"):
         st.plotly_chart(fig_radar, width='stretch')
 
     with col_stack:
-        st.markdown("#### Contribution de chaque critère au profil pondéré")
+        st.markdown("#### Apport de chaque critère dans le profil pondéré")
         df_stack = pd.DataFrame(X_pond, columns=noms_criteres, index=noms_alternatives).reset_index().rename(columns={'index': 'Alternative'})
         fig_stack = px.bar(df_stack, x="Alternative", y=noms_criteres, barmode="stack", color_discrete_sequence=px.colors.qualitative.Safe)
         fig_stack.update_layout(xaxis_title=None, yaxis_title="Valeur Pondérée Cumulée", height=350, margin=dict(t=20, b=20, l=20, r=20), legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1))

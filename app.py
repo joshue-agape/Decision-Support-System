@@ -38,7 +38,7 @@ st.markdown("""
     }
     .recommendation-box {
         background-color: rgba(30, 41, 59, 0.7);
-        border-left: 4px solid #3B82F6;
+        border-left: 4px solid #10B981;
         border-top: 1px solid rgba(255, 255, 255, 0.05);
         border-right: 1px solid rgba(255, 255, 255, 0.05);
         border-bottom: 1px solid rgba(255, 255, 255, 0.05);
@@ -47,10 +47,10 @@ st.markdown("""
         margin-top: 1.2rem;
         margin-bottom: 1.8rem;
         box-shadow: 0 4px 20px 0 rgba(0, 0, 0, 0.3);
-        color: #0F172A !important;
+        color: #FFFFFF !important;
     }
     .recommendation-title {
-        color: #60A5FA !important;
+        color: #34D399 !important;
         font-weight: 700;
         font-size: 1.15rem;
         margin-bottom: 0.5rem;
@@ -65,7 +65,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 st.title("Outil de simulation pour la notation des projets")
-st.markdown("Outil décisionnel mêlant la méthode géométrique TOPSIS et la méthode prudente Min-Max.")
+st.markdown("Outil décisionnel basé exclusivement sur la méthode prudente Min-Max (Analyse du Regret).")
 st.markdown("---")
 
 # ============================
@@ -100,7 +100,7 @@ st.sidebar.markdown("---")
 # ============================
 # ZONE CENTRALE
 # ============================
-st.markdown("### Project Weight Configuration")
+st.markdown("### Configuration de l'importance relative des critères")
 poids_criteres = []
 cols_sliders = st.columns(2)
 poids_initiaux = [0.30, 0.25, 0.20, 0.15, 0.10]
@@ -160,146 +160,127 @@ st.dataframe(df_brut, width='stretch')
 st.markdown("---")
 
 # ==========================================
-# TRAITEMENT ALGORITHMIQUE
+# TRAITEMENT ALGORITHMIQUE PAR ÉTAPE
 # ==========================================
 if st.button("Évaluer le score de performance", type="primary"):
     X = df_brut.to_numpy(dtype=float)
     
-    norm_denominator = np.sqrt((X**2).sum(axis=0))
-    norm_denominator[norm_denominator == 0] = 1e-9 
-    X_norm = X / norm_denominator
+    min_globaux = X.min(axis=0)
+    max_globaux = X.max(axis=0)
+    diffs = max_globaux - min_globaux
+    diffs[diffs == 0] = 1e-9 
     
-    # CALCULS ANALYTIQUES MÉTHODE MIN-MAX
-    X_minmax_prep = np.zeros_like(X_norm)
+    # --------------------------------------------------------
+    # NORMALISATION (0 À 1)
+    # --------------------------------------------------------
+    st.markdown("### Normalsation des données (Échelle 0 à 1)")
+    
+    X_norm = np.zeros_like(X)
     for col in range(int(nb_criteres)):
         if objectifs_criteres[col]:
-            X_minmax_prep[:, col] = X_norm[:, col]
+            X_norm[:, col] = (X[:, col] - min_globaux[col]) / diffs[col]
         else:
-            X_minmax_prep[:, col] = 1.0 - X_norm[:, col]
+            X_norm[:, col] = (max_globaux[col] - X[:, col]) / diffs[col]
             
-    # Identifier la pire performance (le minimum) pour chaque alternative
-    pires_scores_alternatives = np.min(X_minmax_prep, axis=1)
+    df_norm = pd.DataFrame(X_norm, columns=[f"{c} (norm)" for c in noms_criteres], index=noms_alternatives)
+    st.dataframe(df_norm.round(3), width='stretch')
+    st.markdown("---")
+    
+    # --------------------------------------------------------
+    # CALCUL DES REGRETS
+    # --------------------------------------------------------
+    st.markdown("### Calcul des Regrets Pondérés")
+    
+    X_regrets = np.zeros_like(X_norm)
+    criteres_bloquants = []
+    
+    for row in range(len(noms_alternatives)):
+        regrets_ligne = []
+        for col in range(int(nb_criteres)):
+            regret_val = poids_normalises[col] * (1.0 - X_norm[row, col])
+            X_regrets[row, col] = regret_val
+            regrets_ligne.append(regret_val)
+            
+        idx_pire = np.argmax(regrets_ligne)
+        criteres_bloquants.append(noms_criteres[idx_pire])
+        
+    scores_minmax = np.max(X_regrets, axis=1)
+    
+    df_regrets = pd.DataFrame(X_regrets, columns=[f"Regret {c}" for c in noms_criteres], index=noms_alternatives)
+    df_regrets["Score Min-Max (Pire Regret)"] = scores_minmax
+    df_regrets["Critère Bloquant"] = criteres_bloquants
+    
+    st.dataframe(df_regrets.round(3), width='stretch')
+    st.markdown("---")
+    
+    # --------------------------------------------------------
+    # CONCLUSION ET CLASSEMENT
+    # --------------------------------------------------------
+    st.markdown("### Conclusion et Classement Final")
     
     df_minmax = pd.DataFrame({
         "Alternative": noms_alternatives,
-        "Score Sécurité (Min-Max)": pires_scores_alternatives
-    }).sort_values(by="Score Sécurité (Min-Max)", ascending=True)
+        "Score Min-Max": scores_minmax,
+        "Critère bloquant": criteres_bloquants
+    }).sort_values(by="Score Min-Max", ascending=True)
     
-    meilleur_projet_mm = df_minmax.iloc[-1]['Alternative']
-    meilleur_score_mm = df_minmax.iloc[-1]["Score Sécurité (Min-Max)"]
-
-    # ================================================
-    # CALCULS ANALYTIQUES MÉTHODE TOPSIS
-    # ================================================
-    X_pond = X_norm * np.array(poids_normalises)
-    v_ideal_positive, v_ideal_negative = [], []
-    for col in range(int(nb_criteres)):
-        if objectifs_criteres[col]:
-            v_ideal_positive.append(np.max(X_pond[:, col]))
-            v_ideal_negative.append(np.min(X_pond[:, col]))
-        else:
-            v_ideal_positive.append(np.min(X_pond[:, col]))
-            v_ideal_negative.append(np.max(X_pond[:, col]))
-            
-    v_ideal_positive, v_ideal_negative = np.array(v_ideal_positive), np.array(v_ideal_negative)
-    d_positive = np.sqrt(((X_pond - v_ideal_positive)**2).sum(axis=1))
-    d_negative = np.sqrt(((X_pond - v_ideal_negative)**2).sum(axis=1))
+    meilleur_projet_mm = df_minmax.iloc[0]['Alternative']
+    meilleur_score_mm = df_minmax.iloc[0]["Score Min-Max"]
+    raison_bloquante = df_minmax.iloc[0]["Critère bloquant"]
     
-    scores_denom = d_positive + d_negative
-    scores_denom[scores_denom == 0] = 1e-9
-    scores_topsis = d_negative / scores_denom
-    
-    df_topsis = pd.DataFrame({
-        "Alternative": noms_alternatives,
-        "Score TOPSIS": scores_topsis
-    }).sort_values(by="Score TOPSIS", ascending=True)
-    
-    meilleur_projet_top = df_topsis.iloc[-1]['Alternative']
-    meilleur_score_top = df_topsis.iloc[-1]["Score TOPSIS"]
-
-    # ========================================================
-    # RESTITUTION DES RÉSULTATS : MODULE MIN-MAX
-    # ========================================================
-    st.markdown("## 1. Résultats obtenus par la méthode prudente Min-Max")
     st.markdown(f"""
-        <div class="recommendation-box" style="border-left-color: #10B981;">
-            <div class="recommendation-title" style="color: #34D399 !important;">Recommandation Min-Max (Profil prudent)</div>
+        <div class="recommendation-box">
+            <div class="recommendation-title">Recommandation Min-Max (Profil prudent)</div>
             <div class="recommendation-text">
-                En renforçant au maximum les points faibles, l’alternative la plus adaptée est <strong>{meilleur_projet_mm}</strong> avec un score de sécurité minimal de <strong>{meilleur_score_mm:.3f}</strong>.
+                En minimisant le regret maximal vis-à-vis du scénario idéal, l’alternative optimale est <strong>{meilleur_projet_mm}</strong> avec un score de regret minimal de <strong>{meilleur_score_mm:.3f}</strong> (généré par le critère : <em>{raison_bloquante}</em>).
             </div>
         </div>
     """, unsafe_allow_html=True)
     
     col_table_mm, col_chart_mm = st.columns([2, 3])
     with col_table_mm:
-        st.markdown("##### Classement Min-Max")
-        df_aff_mm = df_minmax.iloc[::-1].copy().reset_index(drop=True)
+        st.markdown("##### Classement de Robustesse")
+        df_aff_mm = df_minmax.copy().reset_index(drop=True)
         df_aff_mm.index += 1
         df_aff_mm.index.name = "Rang"
         st.dataframe(df_aff_mm, width='stretch')
         
     with col_chart_mm:
-        couleurs_mm = {alt: '#A7F3D0' if alt != meilleur_projet_mm else '#34D399' for alt in df_minmax['Alternative']}
-        fig_bar_mm = px.bar(df_minmax, x="Score Sécurité (Min-Max)", y="Alternative", orientation='h', text_auto='.3f', color="Alternative", color_discrete_map=couleurs_mm)
-        fig_bar_mm.update_layout(showlegend=False, xaxis_title="Indice de Sécurité Minimal", yaxis_title=None, height=240, paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)')
+        st.markdown("##### Score de risque du projet (Plus bas = Plus sûr)")
+        df_graph = df_minmax.iloc[::-1].copy()
+        couleurs_mm = {alt: '#94A3B8' if alt != meilleur_projet_mm else '#34D399' for alt in df_graph['Alternative']}
+        
+        fig_bar_mm = px.bar(df_graph, x="Score Min-Max", y="Alternative", orientation='h', text_auto='.3f', color="Alternative", color_discrete_map=couleurs_mm)
+        fig_bar_mm.update_layout(showlegend=False, xaxis_title="Regret Maximal Éprouvé", yaxis_title=None, height=250, paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)')
         fig_bar_mm.update_traces(textposition='outside', cliponaxis=False)
         st.plotly_chart(fig_bar_mm, width='stretch', config={'displayModeBar': False})
 
-    st.markdown("---")
-
-    # ========================================================
-    # RESTITUTION DES RÉSULTATS : MODULE TOPSIS
-    # ========================================================
-    st.markdown("## 2. Résultats obtenus par la méthode de compromis TOPSIS")
-    st.markdown(f"""
-        <div class="recommendation-box">
-            <div class="recommendation-title">Recommandation TOPSIS (Profil Équilibré)</div>
-            <div class="recommendation-text">
-                En mesurant le compromis global idéal, l'alternative optimale est <strong>{meilleur_projet_top}</strong> avec un score d'adéquation de <strong>{meilleur_score_top:.3f}</strong>.
-            </div>
-        </div>
-    """, unsafe_allow_html=True)
-    
-    col_table_top, col_chart_top = st.columns([2, 3])
-    with col_table_top:
-        st.markdown("##### Classement TOPSIS")
-        df_aff_top = df_topsis.iloc[::-1].copy().reset_index(drop=True)
-        df_aff_top.index += 1
-        df_aff_top.index.name = "Rang"
-        st.dataframe(df_aff_top, width='stretch')
-        
-    with col_chart_top:
-        couleurs_top = {alt: '#4ADE80' if alt != meilleur_projet_top else '#93C5FD' for alt in df_topsis['Alternative']}
-        fig_bar_top = px.bar(df_topsis, x="Score TOPSIS", y="Alternative", orientation='h', text_auto='.3f', color="Alternative", color_discrete_map=couleurs_top)
-        fig_bar_top.update_layout(showlegend=False, xaxis_title="Score de Proximité Idéale", yaxis_title=None, height=240, paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)')
-        fig_bar_top.update_traces(textposition='outside', cliponaxis=False)
-        st.plotly_chart(fig_bar_top, width='stretch', config={'displayModeBar': False})
-
     # ==========================================
-    # ANALYSES FINALES ET AVANCÉES
+    # GRAPHES ET ANALYSES AVANCÉES
     # ==========================================
     st.markdown("---")
-    st.markdown("### Analyse approfondie de décision basée sur des données brutes normalisées")
+    st.markdown("### Évaluation de la robustesse des projets face au pire scénario")
     
     col_radar, col_stack = st.columns(2)
     
     with col_radar:
-        st.markdown("#### Représentation comparative des alternatives en radar")
+        st.markdown("#### Visualisation radar des forces et faiblesses des alternatives")
         fig_radar = go.Figure()
         for idx, name in enumerate(noms_alternatives):
+            epaisseur = 3.5 if name == meilleur_projet_mm else 1.5
             fig_radar.add_trace(go.Scatterpolar(
                 r=X_norm[idx].tolist() + [X_norm[idx][0]],
                 theta=noms_criteres + [noms_criteres[0]],
-                fill='toself',
+                fill='toself' if name == meilleur_projet_mm else None,
                 name=name,
-                line=dict(width=2 if name != meilleur_projet_top else 3)
+                line=dict(width=epaisseur)
             ))
-        fig_radar.update_layout(polar=dict(radialaxis=dict(visible=True, range=[0, 1])), showlegend=True, height=350, margin=dict(t=20, b=20, l=20, r=20))
+        fig_radar.update_layout(polar=dict(radialaxis=dict(visible=True, range=[0, 1])), showlegend=True, height=350, margin=dict(t=20, b=20, l=20, r=20), paper_bgcolor='rgba(0,0,0,0)')
         st.plotly_chart(fig_radar, width='stretch')
 
     with col_stack:
-        st.markdown("#### Apport de chaque critère dans le profil pondéré")
-        df_stack = pd.DataFrame(X_pond, columns=noms_criteres, index=noms_alternatives).reset_index().rename(columns={'index': 'Alternative'})
+        st.markdown("#### Détail des facteurs de risque de déception")
+        df_stack = pd.DataFrame(X_regrets, columns=noms_criteres, index=noms_alternatives).reset_index().rename(columns={'index': 'Alternative'})
         fig_stack = px.bar(df_stack, x="Alternative", y=noms_criteres, barmode="stack", color_discrete_sequence=px.colors.qualitative.Safe)
-        fig_stack.update_layout(xaxis_title=None, yaxis_title="Valeur Pondérée Cumulée", height=350, margin=dict(t=20, b=20, l=20, r=20), legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1))
+        fig_stack.update_layout(xaxis_title=None, yaxis_title="Regret cumulé des dimensions", height=350, margin=dict(t=20, b=20, l=20, r=20), paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1))
         st.plotly_chart(fig_stack, width='stretch')

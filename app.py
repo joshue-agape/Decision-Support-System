@@ -80,7 +80,7 @@ st.sidebar.markdown("### Objectifs des Critères")
 
 noms_criteres = []
 objectifs_criteres = []
-noms_defaut = ["ROI", "Cost", "Risk", "CSR", "Time"]
+noms_defaut = ["Rentabilité", "Coût", "Risque", "Responsabilité Sociale", "Délai"]
 
 for i in range(int(nb_criteres)):
     if i > 0:
@@ -110,7 +110,7 @@ for i, nom_crit in enumerate(noms_criteres):
     with col_cible:
         val_init = poids_initiaux[i] if i < len(poids_initiaux) else 0.10
         val_poids = col_cible.slider(
-            f"Weight {nom_crit}", 
+            f"Poids {nom_crit}", 
             min_value=0.0, 
             max_value=1.0, 
             value=val_init, 
@@ -140,7 +140,7 @@ valeurs_defaut = [
 ]
 
 with col_alt:
-    st.markdown("**Alternative**")
+    st.markdown("**Variantes**")
     for j in range(int(nb_alternatives)):
         nom_alt = st.text_input(f"Variante de projet {j+1}", value=f"Projet A{j+1}", key=f"alt_name_{j}")
         noms_alternatives.append(nom_alt)
